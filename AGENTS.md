@@ -1,0 +1,115 @@
+# Agent Instructions
+
+## Overview
+
+Read the project name and description from [`project-context.toml`](project-context.toml); run `python3 scripts/project_context.py` to validate it. Feature specs, plans, and tasks are organized in the `specs/` directory. Governance rules are defined in [`.specify/memory/constitution.md`](.specify/memory/constitution.md) and are not overridden by project context.
+
+## Where to find what
+
+| Question | Where to look |
+| --- | --- |
+| Bootstrap a new project, check bootstrap progress or resume | [docs/bootstrap.md](docs/bootstrap.md), [Troubleshooting](docs/bootstrap.md#troubleshooting); `python3 scripts/bootstrap.py check` ([Machine-readable status](docs/bootstrap.md#machine-readable-status)); the guided path ([in the terminal](docs/bootstrap.md#guided-path-with-start), or [in your coding agent](docs/bootstrap.md#guided-path-in-your-coding-agent) with the [bootstrap-guide skill](.agents/skills/bootstrap-guide/SKILL.md)); [scripts/README.md](scripts/README.md#bootstrappy) |
+| Board credentials (optional): token or App secrets | [Board credentials](docs/bootstrap.md#board-credentials) |
+| Project settings and their validation | `project-context.toml`, [project-context.example.toml](project-context.example.toml); `python3 scripts/project_context.py` ([scripts/README.md](scripts/README.md#project_contextpy)) |
+| The constitution | `.specify/memory/constitution.md`, created at bootstrap by the speckit-constitution skill ([Constitution](docs/bootstrap.md#constitution)) |
+| Roadmap format, plan statuses, roadmap hooks and dependency checks | [docs/roadmap-format.md](docs/roadmap-format.md), [Hooks and dependency checks](docs/roadmap-format.md#hooks-and-dependency-checks) |
+| How roadmap entries become issues, and what each sync does | [sync-roadmap-issues.py](scripts/README.md#sync-roadmap-issuespy), [sync-task-issues.py](scripts/README.md#sync-task-issuespy), [sync-project-status.py](scripts/README.md#sync-project-statuspy); [How the syncs behave](docs/bootstrap.md#how-the-syncs-behave); [GitHub workflows](README.md#github-workflows) |
+| Walk-through of a roadmap item, from entry to merged Phase | [Roadmap item walkthrough](scripts/README.md#roadmap-item-walkthrough) |
+| Progress and dependency completion | `python3 scripts/roadmap_status.py` ([scripts/README.md](scripts/README.md#roadmap_statuspy)) |
+| Approvals: where the count comes from, who approved | [Approvals](#approvals), [docs/review-and-approvals.md](docs/review-and-approvals.md#approvals), the constitution, `[review] required_approvals` in `project-context.toml` |
+| Branch and pull request naming and linking | [Implementing Tasks](#implementing-tasks-from-tasksmd), [When Creating a Pull Request](#when-creating-a-pull-request); [README conventions](README.md#branch-and-pull-request-conventions); [pr_conventions.py](scripts/README.md#pr_conventionspy) |
+| Which agent takes which task, the sub-agent roster and collision rules | [Which agent takes which task](docs/sub-agents.md#which-agent-takes-which-task), [docs/sub-agents.md](docs/sub-agents.md), [agent-definitions/](agent-definitions/) |
+| Where skills live, how agent files are generated | `.agents/skills/`, [Agents](#agents), [docs/sub-agents.md](docs/sub-agents.md#one-copy-of-every-skill-and-sub-agent); `python3 scripts/agent_setup.py sync` ([scripts/README.md](scripts/README.md#agent_setuppy), [README](README.md#coding-agents)) |
+| Spec Kit steps and hooks | `.specify/extensions.yml`, the `speckit-*` skills in [.agents/skills/](.agents/skills/); [Hooks and enforcement](README.md#hooks-and-enforcement) |
+| Change or upgrade Spec Kit files | [Spec Kit CLI and version](README.md#spec-kit-cli-and-version), [specify.sh](scripts/README.md#specifysh) |
+| Resume after a context reset | [Keeping Track Across Sessions](#keeping-track-across-sessions) |
+| CI workflows, required checks and rulesets | [GitHub workflows](README.md#github-workflows), [Repository rulesets](README.md#repository-rulesets) |
+
+## Non-Negotiable Guidance
+
+- **Prefer `gh` cli tool over Github MCP, if possible**
+- **Hard rule: check roadmap dependencies before starting or resuming implementation.** Invoke the [roadmap-dependency-check skill](.agents/skills/roadmap-dependency-check/SKILL.md) before implementing, creating Phase/implementation branches, moving a Phase issue to In Progress, or launching agents for implementation. Follow it for entry resolution, prerequisites, blockers, overrides, and implementation resume checks; if the skill or required hook configuration is unavailable, stop and resolve that first. Before specifying, [roadmap-entry-check](.agents/skills/roadmap-entry-check/SKILL.md) requires an explicit feature directory and planned entry identity, warns about blockers without requiring acknowledgement, and stops on errors. Dependency acknowledgement does not block specification branches, clarify, plan, tasks, analyze, or converge. Standalone repository chores unrelated to a roadmap item do not need an invented entry. This gate does not replace any other workflow or approval rule.
+- **Roadmap IDs are feature IDs.** Before `speckit-specify`, explicitly supply `SPECIFY_FEATURE_DIRECTORY=specs/<roadmap-id>-<slug>` so the directory prefix matches the roadmap entry (entry 008 uses `specs/008-example-feature`); do not use the next free sequential number.
+- **Roadmap issues are synchronized by CI.** The **Sync Roadmap to GitHub Issues** workflow creates or reconciles each planned entry's Epic, spec-plan planning issue and provisional Phase 1 issue after roadmap or spec artifacts change on `main`; do not recreate or repair them manually. Before specifying, use the `SPEC: <ID> Create and approve spec and plan` issue for the issue-backed spec-and-plan branch. After the spec-and-plan pull request merges, use the provisional Phase 1 issue for task generation and implementation.
+  - The workflow finds roadmap and planning issues by markers, not titles. If an expected planning issue is missing, first inspect the latest run and its dry-run output; never create a duplicate manually. See the [roadmap item walkthrough](scripts/README.md#roadmap-item-walkthrough).
+- **Hard rule: spec and plan merge before tasks.** For a new feature, `spec.md` and `plan.md` (with research, data model, contracts, quickstart) go in their own pull request. Do not run `speckit-tasks` until that PR is merged and `main` is pulled; then generate tasks on the Phase 1 implementation branch (there is no separate tasks pull request or tasks planning issue). The `before_tasks` hook `plan-merged.check` (skill `plan-merged-check`) enforces this; if it fails, stop and tell the user. Never bypass it, and never add the `combined-spec-pr-approved` label yourself. The `prerequisites-acknowledged` label is human-only: agents and automation must never apply it.
+- **Hard rule: run Spec Kit workflow steps only through the `speckit-*` skills, and run their hooks.** Invoke the skill (e.g. `speckit-specify`, `speckit-clarify`, `speckit-plan`, `speckit-tasks`, `speckit-analyze`, `speckit-converge`, `speckit-implement`); do not hand-edit `spec.md`, `plan.md`, or other Spec Kit artifacts (except `tasks.md`, see the Implementation gate).
+  - Before each skill, re-read `.specify/extensions.yml` (also after a context reset) and run every enabled `before_<step>` hook; after it, every enabled `after_<step>` hook, in listed order.
+  - `optional: false` hooks are mandatory: run them without asking, and never skip, reorder or substitute them. Ask the user about `optional: true` hooks; never skip them silently.
+  - If a hook fails or cannot run, stop, show the failure and wait for the user. Never edit `extensions.yml` to get past a hook.
+  - End every Spec Kit step with one line, `Hooks run: <hook>: <ran|skipped|failed>, ...`, listing every hook for that step, including skipped and failed ones.
+- **Hard rule: follow the Spec Kit step order:** specify → clarify → plan → tasks → analyze → implement. Never skip or reorder steps. Do not use `.specify/workflows/`; it is not part of this project's process. Clarify (the `after_specify` hook) may be skipped only when the user explicitly says the work is an exploratory spike; record it as `speckit.clarify: skipped (spike, per user)`.
+  - **Spec review gate:** after clarify, stop and ask the user to review and approve the spec before `speckit-plan`.
+  - **Plan review gate:** after `speckit-plan`, follow the spec-and-plan rule above before tasks.
+  - **Tests in `tasks.md`:** the constitution's quality gate overrides the `speckit-tasks` default that tests are optional. When the constitution or spec requires automated tests, every behavior change gets a test task written before its implementation task.
+  - **Implementation gate:** after analyze, report its findings and resolve CRITICAL ones. Implement only after the spec-and-plan pull request is merged and the user approves. Verify the merge with `git` and `gh` before starting. Do not require a GitHub Phase sync before implementation: the Phase issues sync after the implementation PR merges. `T###` tasks never become issues; never run `speckit-taskstoissues` or the Spec Kit `github` extension's `speckit-github-taskstoissues`. Direct `tasks.md` maintenance is allowed in reviewed implementation PRs; rerun `speckit-analyze` after structural edits (Phases, tasks, dependencies), not after checkbox-only or wording changes.
+  - When a step finishes, the next proposed action is the next step, not committing or opening a pull request (the one exception is the `tasks.md` commit and push after analyze, see "Implementing Tasks from tasks.md"); in particular, analyze runs right after the initial `speckit-tasks` generation, before implementation starts.
+- **Roadmap.** [`ROADMAP.md`](ROADMAP.md) at the repository root is the plan-only ledger. Validate it with `python3 scripts/check_roadmap.py`; the format, plan statuses, hooks and dependency checks are in [`docs/roadmap-format.md`](docs/roadmap-format.md).
+  - The main session owns exactly three roadmap hooks in `.specify/extensions.yml`: mandatory `roadmap-entry.check` before specifying, mandatory `roadmap-dependency.check` before implementing (blocks on unfinished prerequisites unless the user explicitly acknowledges the exact blocker set), and optional `roadmap.write` after a constitution change. Run applicable hooks once per feature or phase, never per `tdd-implementer` slice.
+  - Before delegating roadmap work, the main session runs the dependency guard and gives `tdd-implementer` the entry, requested scope, any verified milestone evidence, blockers, and any explicit acknowledgement (or confirms there are no blockers). The agent stops if this result is missing; it does not invent or broaden an override.
+  - `ROADMAP.md` uses plan statuses only, never progress. Read progress with `python3 scripts/roadmap_status.py` (`--id <ID> --json` for dependency checks); only an Epic closed as completed satisfies ordinary completion.
+  - [`roadmap-write`](.agents/skills/roadmap-write/SKILL.md) is the only skill that edits `ROADMAP.md`.
+- **Delegated implementation.** When tasks are implemented through `tdd-implementer` without a `speckit-implement` run, the main session runs the `before_implement` hooks before the first task, and the `after_implement` hooks, in order, after the last task of each phase and before the pull request.
+- **Hard rule: always ask the user before committing.** Never run `git commit` (or amend/squash) without explicit approval for that commit; this includes commits between tasks. Show a summary of the changes and the proposed commit message when asking.
+- **Always pull `main` before creating a new branch** (a new feature, Phase or issue): run `git fetch origin && git checkout main && git pull --ff-only origin main` (stash or ask the user first if the working tree is dirty), then create the issue-backed branch from the freshly pulled `main`. Continuing on the issue-backed branch linked to the Phase issue being implemented, including the next `T###` task or implementing right after `tasks.md` was generated there, is not new work: run `git fetch origin` to compare dependency data with `origin/main`, but do not stash or switch to `main`.
+
+## Agents
+
+Sub-agents live in [`agent-definitions/`](agent-definitions/). The roster, which agent takes which task, the collision rules and the generation details are in [docs/sub-agents.md](docs/sub-agents.md). Delegate to one when its trigger in that page applies. They do not replace the Spec Kit skills or the hard rules above. Model and reasoning effort per tool are set in [`agent-definitions/agents.toml`](agent-definitions/agents.toml).
+
+- **Skills live only in `.agents/skills/`; sub-agents only in `agent-definitions/<name>.md`.** `.github/agents/`, `.claude/agents/` and `.codex/agents/` are generated locally and gitignored; never edit them by hand. Never copy a skill or sub-agent into another folder, and never recreate `.github/skills/`.
+- **Never edit Spec Kit-generated files by hand** (files listed in `.specify/integrations/*.manifest.json`, or skills generated by a Spec Kit extension). Change them only with `scripts/specify.sh`, which runs the pinned Spec Kit version, in a pull request of their own.
+- **After changing anything in `agent-definitions/`, run `python3 scripts/agent_setup.py sync`.** Before committing agent or Spec Kit changes, run `python3 scripts/agent_setup.py check`; CI runs it too.
+- **Mandatory review gate:** run the `code-review-and-quality` skill through `code-reviewer` on the exact final diff before a pull request is created (see "When Creating a Pull Request"), plus the independent non-author human approvals the constitution requires. `code-reviewer` also reviews each task's diff after `tdd-implementer` has run. Run `security-auditor` for security-sensitive changes and before the first deployment.
+- **Running several agents at once:** one agent per task ID, one writer per file, and the caller owns `tasks.md`. `test-engineer` stops at red, then `tdd-implementer` takes it to green. Agents do not call each other. See [docs/sub-agents.md](docs/sub-agents.md#rules-that-keep-agents-from-colliding).
+- **The caller relays every review and audit finding to the user.** Fix Critical and Required findings from `code-reviewer`, and Critical and High findings from the other agents, passing the fixing work to `tdd-implementer` whenever possible. If you believe a finding is wrong, show it to the user with your reasoning instead of fixing it. Show every other finding (Optional, Nit, FYI, Medium, Low, Info) to the user, with file:line where it has one, and let the user decide; never fix or dismiss them silently.
+- **Sub-agents never commit, push or open pull requests; the main session does so only with the user's approval.** The user approves every commit.
+
+## Project Instructions
+
+### Conditional Impact Analysis
+
+When a change renames or removes an identifier, changes configuration semantics, alters shared interfaces or behavior, or touches authentication, authorization, or path checks:
+
+- Search the repository for affected names and behavior (application and infrastructure code, `scripts/`, specs, documentation, tests, CI, error messages). Update active references; preserve historical records where appropriate.
+- For environment-variable changes, check every consumer (runtime code, tests, infrastructure, docs). Preserve backward compatibility when the old behavior was supported, or document the breaking change. Use a default only when it is safe and semantically correct; fail clearly when required configuration is missing.
+- For authentication, authorization, and path checks, validate untrusted inputs and use consistent path normalization and method handling where relevant.
+- When tests modify `process.env`, snapshot and restore it with `{ ...process.env }`. After renames or refactors, check for stale references and orphaned imports or code.
+- Run the relevant tests and project checks for the affected area: the scripts in that area’s `package.json` and the applicable CI checks.
+
+### Implementing Tasks from tasks.md
+
+- **Prefer completing a whole phase at once if possible.** If not, focus first on the tasks that are blockers for other tasks.
+- **Never go beyond the requested task or phase.**
+- **Mark only the finished task as done in `tasks.md`.**
+- **If working on a whole phase in a single session, don't mark single tasks completed in GitHub in between tasks.**
+- **Between tasks, propose a meaningful commit message; commit and push the Phase branch once the user approves, so others can see the work.** If a task becomes large, eg. over 10 files or hundreds of lines of code, propose multiple commits. The main session asks for approval of the commit and the push together (show the files, commit message and remote branch); if the user approves only the commit, do not push. Sub-agents never push.
+  - After `speckit-tasks` and `speckit-analyze` finish on a Phase branch, with CRITICAL findings resolved, ask the user to approve committing `tasks.md` and pushing the branch. This does not replace the implementation gate.
+  - After that first push, add a short comment on the Phase issue with information the assignee and the Development panel do not already show (tasks generated and analyzed, number of tasks, implementation starts after approval).
+- **After editing or creating a file, run the supported code formatter, eg. Prettier**
+- **Work on the branch linked to the Phase issue.** Individual `T###` items do not have GitHub issues or branches. Before suggesting or creating a branch, look up the Phase issue number and title. Use `<github-issue>-phase-<phase-number>-<kebab-case-title>` or retain GitHub's full-title branch suggestion, which includes `phase-<phase-number>` in the slug.
+- **Do not invent a task ID.** For repository work that is not a Spec Kit task, create an issue whose title starts with `CHORE:`, `CI:`, `DOCS:`, `FIX:`, `REFACTOR:`, `SPEC:`, or `TEST:` and use `<github-issue>-<lowercase-type>-<kebab-case-title>`.
+- **Create linked branches with GitHub's issue "Create branch" action or `gh issue develop <issue> --base main --name <branch> --checkout`.** If the current branch is `main`, ask the user to create or approve creation of the issue-backed branch before editing.
+
+### When Starting New Work
+
+- **For Phase implementation, use the Phase issue as the work item.** Assign the user and move that issue to "In Progress" using the API (`gh` CLI). Do not create or assign GitHub issues for individual `T###` tasks.
+- **Starting a roadmap item:** follow the roadmap dependency and issue-backed planning rules above. Use its spec-plan planning issue for the spec-and-plan branch and the provisional `Phase 1: Kickoff — <Epic name>` story for the Phase 1 implementation branch, where `tasks.md` is generated (for example, `<issue>-spec-008-create-and-approve-spec-and-plan`); assign the user and move the issue to In Progress as above.
+
+### Keeping Track Across Sessions
+
+- **GitHub is the worklog.** The issue linked to the branch holds the goal, its pull request body holds decisions and their reasons, and open issues and unchecked tasks in `tasks.md` hold unfinished work. Do not keep a separate worklog file.
+- **The main session keeps pending user decisions in one "Open decisions" comment on that issue,** for example review findings that wait for the user, so they survive a context reset (compaction or handoff). Edit it in place instead of adding a comment per review round, with one line per item (a descriptive label, its state, a one-line reason or context); see [Keeping the "Open decisions" comment](docs/review-and-approvals.md#keeping-the-open-decisions-comment). Never post unfixed security findings there or in a PR body: on a public repository both are public; tell the user, who decides where to keep them.
+- **Move decided items out of the issue.** When a pull request is created, move the decided items into its body (with several PRs per Phase, only those decided since the previous one) and cut the comment down to the items still open; delete it when none are left. A decision that changes the spec or design also goes through the Spec Kit skills when it is decided, before the final review (`speckit-clarify`, `speckit-plan`; rerun `speckit-analyze` if `tasks.md` is affected); the PR body still records it with its reason.
+- **After a context reset, read that issue, its pull request if one is open, and `git status` before continuing.** Reconcile new instructions with work already underway, and rerun the resume checks above: re-read `.specify/extensions.yml`, and recheck roadmap dependencies when resuming implementation.
+
+### When Creating a Pull Request
+
+- **Before creating or opening any pull request, run the `code-review-and-quality` skill on the exact final diff, preferably through the `code-reviewer` agent.** Fix its Critical and Required findings (passing the work to `tdd-implementer` whenever possible; if you believe a finding is wrong, show it to the user with your reasoning instead of fixing it) and show its Optional, Nit and FYI findings to the user for a decision; if the diff changes after review, rerun the review on the updated diff. Do not create or open the pull request until the review is complete.
+- **When tasked to create a pull request, also move the issue to the "In Review" column** using the API (`gh`- cli tool).
+- **Move decided items into the pull request body,** and record reference-test and pilot verification results there, not on the issue (see "Keeping Track Across Sessions").
+- **Link the issue in the pull request body.** For a non-Phase issue branch, include `Closes #<github-issue>`; for a Phase branch, use `Part of #<phase issue>` instead, because a Phase PR is often partial and a closing keyword would close the Phase on merge. The PR conventions workflow adds the right line when it is missing; see [Linking the issue](docs/review-and-approvals.md#linking-the-issue-in-a-pull-request).
+
+### Approvals
+
+- **Approvals are enforced by the branch ruleset** with the count from `[review] required_approvals` in `project-context.toml` (required, with no implicit default; 0 is valid only where the constitution allows a solo project). The constitution sets the count and wins if they differ. GitHub records each review on the pull request; nothing is written into spec, plan or task documents. To see who approved a change, see [Approvals](docs/review-and-approvals.md#approvals).
