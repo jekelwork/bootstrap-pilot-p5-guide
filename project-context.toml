@@ -1,0 +1,10 @@
+[project]
+name = "bootstrap-pilot-p5-guide"
+description = "todo app"
+
+[github_project]
+owner = "jekelwork"
+number = 14
+
+[review]
+required_approvals = 0
