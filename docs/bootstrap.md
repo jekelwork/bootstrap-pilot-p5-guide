@@ -247,7 +247,7 @@ branch, and the setting matters for other issues.
 ## Board credentials
 
 No token is required. The workflows that update the GitHub Project board (`sync-roadmap-issues`,
-`sync-spec-tasks`, `sync-project-status`) work without a board credential: board sync is skipped with
+`sync-phase-issues`, `sync-project-status`) work without a board credential: board sync is skipped with
 a notice and issues are still synced. To enable board sync, configure one of the two credentials
 below. Issue writes always use the workflow's own `GITHUB_TOKEN`; the board credential is used only
 for the board. The board owner (`github_project.owner`) must match the repository owner for both
@@ -255,7 +255,7 @@ credentials (case-insensitive). On GitHub Free, organization secrets may not be 
 private repositories; repository secrets always work.
 
 The `*_APP_ID` secrets may hold the App's Client ID or its numeric App ID; the workflows pass the
-value to `actions/create-github-app-token` as `client-id`.
+value to `actions/create-github-app-token` as `client-id` (through the shared `.github/actions/board-token` action).
 
 Set every secret in a separate terminal window, or on the repository's Settings → Secrets and
 variables → Actions page. Never run `gh secret set` through a coding agent's shell or a prefix that
@@ -433,7 +433,7 @@ skip board updates and still sync issues (`sync-project-status` skips entirely).
 | Workflow                                             | Runs on                                                                 | Preview or apply                                                                                                                      |
 | ---------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `sync-roadmap-issues` (Epics, Planning, Phase 1)     | Push to `main` changing the roadmap or specs; daily; manual             | Push and daily runs preview only. Manual runs preview unless **Apply changes** is checked.                                            |
-| `sync-spec-tasks` (Phase issues from `tasks.md`)     | A merged PR to `main`; daily; manual (optional `feature` input)         | A merged PR that changes `tasks.md` applies. Daily runs preview unless `PHASE_SYNC_AUTO_APPLY` is `true`. Manual runs need **Apply**. |
+| `sync-phase-issues` (Phase issues from `tasks.md`)     | A merged PR to `main`; daily; manual (optional `feature` input)         | A merged PR that changes `tasks.md` applies. Daily runs preview unless `PHASE_SYNC_AUTO_APPLY` is `true`. Manual runs need **Apply**. |
 | `sync-project-status` (board Status of Phase issues) | Phase branch and PR events; issue close, reopen or label; daily; manual | Always applies; changes the Status of existing Phase issues and takes retired Phases off the board; it creates and closes no issues.  |
 
 - **Retired Phases leave the board.** A Phase removed from `tasks.md` is closed as not planned and
@@ -470,7 +470,7 @@ issue branch (`$speckit-specify` in Codex): your agent derives
 matches it, and you do not set it or run the entry check yourself. The spec and plan merge in their
 own pull request; `tasks.md` is generated afterwards on the Phase 1 implementation branch. See
 [AGENTS.md](../AGENTS.md) for the rules agents follow and the
-[README](../README.md#spec-kit-workflow-best-practices) for the whole flow.
+[Spec-driven workflow](spec-workflow.md#spec-kit-workflow-best-practices) for the whole flow.
 
 ## Your application's CI
 
@@ -530,7 +530,7 @@ It acts on five steps, each after a preview:
   - `origin` or any of its push URLs is not a GitHub repository, or names another one than the one
     `gh` uses (see [Which repository `start` uses](#which-repository-start-uses)).
 - `first_sync`: dispatches the first roadmap sync with `apply=true` and follows the run by polling it. It
-  stops unless `ROADMAP.md`, `specs/`, `scripts/`, `.github/workflows/`, `project-context.toml` and
+  stops unless `ROADMAP.md`, `specs/`, `scripts/`, `.github/workflows/`, `.github/actions/`, `project-context.toml` and
   `.specify/memory/constitution.md` are committed.
 
 `bootstrap_issue`, `pull_request` and `first_sync` are `performable: false` in `check --json`
@@ -741,7 +741,7 @@ The guided and the manual path preview the first sync differently.
   that board changes are not previewed. A dry run that fails offers no apply: `start` prints its
   output in full and exits 1. Before it, `start` stops (exit 1) unless the checkout is exactly the
   default branch's tip with no uncommitted or untracked changes in `ROADMAP.md`, `specs/`,
-  `scripts/`, `.github/workflows/`, `project-context.toml` or `.specify/memory/constitution.md`
+  `scripts/`, `.github/workflows/`, `.github/actions/`, `project-context.toml` or `.specify/memory/constitution.md`
   (the dispatched workflow runs what is on GitHub, so the local dry run must read the same files),
   and unless the `origin` remote is a GitHub URL for the same repository `gh` uses (see
   [Which repository `start` uses](#which-repository-start-uses)). The fix is printed:
@@ -812,7 +812,7 @@ expected: the guided path is for a repository created from the template.
 You can also be guided in a conversation. In your coding agent, ask it to bootstrap the project
 (for example "bootstrap this project" or "what is the next bootstrap step?"). The agent then uses
 the [`bootstrap-guide`](../.agents/skills/bootstrap-guide/SKILL.md) skill. It works with every
-coding agent the toolkit sets up (see [Coding agents](../README.md#coding-agents)). If the agent
+coding agent the toolkit sets up (see [Coding agents](coding-agents.md#coding-agents)). If the agent
 does not pick the skill from a free-text request, call it by name: `$bootstrap-guide` in Codex,
 `/bootstrap-guide` in Copilot and Claude Code.
 
@@ -1049,5 +1049,5 @@ the reason in `title` and the fix in `action`, and `result` is `incomplete`.
 | Branch name rejected                                         | Use `<issue>-chore-<title>` (or `<issue>-phase-<n>-<title>`) from `gh issue develop`.              |
 | "Board sync skipped" notice                                  | No board credential or no `project-context.toml` yet; see [Board credentials](#board-credentials). |
 | Sub-agents not found or out of date                          | `python3 scripts/agent_setup.py sync`, then restart the agent session. |
-| Git hooks do not run                                         | See [Troubleshooting: hooks don't run](../README.md#troubleshooting-hooks-dont-run).               |
+| Git hooks do not run                                         | See [Troubleshooting: hooks don't run](local-setup.md#troubleshooting-hooks-dont-run).               |
 | **Repository tools** fails in `AgentsIndexTest` (`scripts/test_agents_index.py`) | The "Where to find what" table in `AGENTS.md` is checked on every pull request: it needs the header `Question \| Where to look`, 10 to 16 rows, links that resolve to existing files, and anchors that match a heading; code-span paths must exist and must not be excluded from the export. A broken row, link or heading is named in the failure message; a wrong header or row count is reported with the rule it breaks. Fix the row, or update the target when you rename a heading or move a file. |
